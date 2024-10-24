@@ -1,0 +1,113 @@
+services:
+  db:
+    image: postgres
+    restart: always
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: foobar
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: pg_isready -U postgres -d postgres
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  manifest-ledger:
+    image: ghcr.io/liftedinit/manifest-ledger:v0.0.1-alpha.18
+    volumes:
+        - manifest-ledger-bin:/usr/bin
+        - manifest-ledger-data:/persistent
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["update_test_genesis() { cat $HOME_DIR/config/genesis.json | jq $1 > $HOME_DIR/config/tmp_genesis.json && mv $HOME_DIR/config/tmp_genesis.json $HOME_DIR/config/genesis.json; };
+               echo $MNEMO1 | $BINARY keys add $KEY --home=$HOME_DIR --keyring-backend $KEYRING --algo $KEYALGO --recover &&
+               echo $MNEMO2 | $BINARY keys add $KEY2 --home=$HOME_DIR --keyring-backend $KEYRING --algo $KEYALGO --recover &&
+               $BINARY init $MONIKER --home=$HOME_DIR --chain-id $CHAIN_ID &&
+               update_test_genesis '.consensus[\"params\"][\"block\"][\"max_gas\"]=\"1000000000\"' &&
+               update_test_genesis '.app_state[\"gov\"][\"params\"][\"min_deposit\"]=[{\"denom\":\"$DENOM\",\"amount\":\"1000000\"}]' &&
+               update_test_genesis '.app_state[\"gov\"][\"params\"][\"voting_period\"]=\"15s\"' &&
+               update_test_genesis '.app_state[\"gov\"][\"params\"][\"expedited_voting_period\"]=\"10s\"' &&
+               update_test_genesis '.app_state[\"staking\"][\"params\"][\"bond_denom\"]=\"${BOND_DENOM}\"' &&
+               update_test_genesis '.app_state[\"staking\"][\"params\"][\"min_commission_rate\"]=\"0.000000000000000000\"' &&
+               update_test_genesis '.app_state[\"mint\"][\"params\"][\"mint_denom\"]=\"$DENOM\"' &&
+               update_test_genesis '.app_state[\"mint\"][\"params\"][\"blocks_per_year\"]=\"6311520\"' &&
+               update_test_genesis '.app_state[\"tokenfactory\"][\"params\"][\"denom_creation_fee\"]=[]' &&
+               update_test_genesis '.app_state[\"tokenfactory\"][\"params\"][\"denom_creation_gas_consume\"]=0' &&
+               update_test_genesis '.app_state[\"feegrant\"][\"allowances\"]=[{\"granter\":\"${GAS_STATION_ADDR}\",\"grantee\":\"${BANK_ADDR}\",\"allowance\":{\"@type\":\"/cosmos.feegrant.v1beta1.AllowedMsgAllowance\",\"allowance\":{\"@type\":\"/cosmos.feegrant.v1beta1.BasicAllowance\",\"spend_limit\":[],\"expiration\":null},\"allowed_messages\":[\"/cosmos.bank.v1beta1.MsgSend\"]}}]' &&
+               update_test_genesis '.app_state[\"group\"][\"group_seq\"]=\"1\"' &&
+               update_test_genesis '.app_state[\"group\"][\"groups\"]=[{\"id\":\"1\",\"admin\":\"${POA_ADMIN_ADDRESS}\",\"metadata\":\"AQ==\",\"version\":\"2\",\"total_weight\":\"2\",\"created_at\":\"2024-05-16T15:10:54.372190727Z\"}]' &&
+               update_test_genesis '.app_state[\"group\"][\"group_members\"]=[{\"group_id\":\"1\",\"member\":{\"address\":\"${ADDR1}\",\"weight\":\"1\",\"metadata\":\"user1\",\"added_at\":\"2024-05-16T15:10:54.372190727Z\"}},{\"group_id\":\"1\",\"member\":{\"address\":\"${ADDR2}\",\"weight\":\"1\",\"metadata\":\"user2\",\"added_at\":\"2024-05-16T15:10:54.372190727Z\"}}]' &&
+               update_test_genesis '.app_state[\"group\"][\"group_policy_seq\"]=\"1\"' &&
+               update_test_genesis '.app_state[\"group\"][\"group_policies\"]=[{\"address\":\"${POA_ADMIN_ADDRESS}\",\"group_id\":\"1\",\"admin\":\"${POA_ADMIN_ADDRESS}\",\"metadata\":\"AQ==\",\"version\":\"2\",\"decision_policy\":{\"@type\":\"/cosmos.group.v1.ThresholdDecisionPolicy\",\"threshold\":\"1\",\"windows\":{\"voting_period\":\"30s\",\"min_execution_period\":\"0s\"}},\"created_at\":\"2024-05-16T15:10:54.372190727Z\"}]' &&
+               $BINARY genesis add-genesis-account $KEY 100000000000000000${BOND_DENOM},100000000000000000000000000000${DENOM} --keyring-backend $KEYRING --home=$HOME_DIR &&
+               $BINARY genesis add-genesis-account $KEY2 100000000000000000${DENOM} --keyring-backend $KEYRING --home=$HOME_DIR &&
+               $BINARY genesis gentx $KEY 1000000${BOND_DENOM} --keyring-backend $KEYRING --home=$HOME_DIR --chain-id $CHAIN_ID --commission-rate=0.0 --commission-max-rate=1.0 --commission-max-change-rate=0.1 &&
+               $BINARY genesis collect-gentxs --home=$HOME_DIR &&
+               $BINARY genesis validate-genesis --home=$HOME_DIR &&
+               sed -i 's/laddr = \"tcp:\\/\\/127.0.0.1:26657\"/c\\laddr = \"tcp:\\/\\/0.0.0.0:'$RPC'\"/g' $HOME_DIR/config/config.toml &&
+               sed -i 's/cors_allowed_origins = \\[\\]/cors_allowed_origins = \\[\"\\*\"\\]/g' $HOME_DIR/config/config.toml &&
+               sed -i 's/address = \"tcp:\\/\\/localhost:1317\"/address = \"tcp:\\/\\/0.0.0.0:'$REST'\"/g' $HOME_DIR/config/app.toml &&
+               sed -i 's/enable = false/enable = true/g' $HOME_DIR/config/app.toml &&
+               sed -i 's/pprof_laddr = \"localhost:6060\"/pprof_laddr = \"localhost:'$PROFF'\"/g' $HOME_DIR/config/config.toml &&
+               sed -i 's/laddr = \"tcp:\\/\\/0.0.0.0:26656\"/laddr = \"tcp:\\/\\/0.0.0.0:'$P2P'\"/g' $HOME_DIR/config/config.toml &&
+               sed -i 's/address = \"localhost:9090\"/address = \"0.0.0.0:'$GRPC'\"/g' $HOME_DIR/config/app.toml &&
+               sed -i 's/address = \"localhost:9091\"/address = \"0.0.0.0:'$GRPC_WEB'\"/g' $HOME_DIR/config/app.toml &&
+               sed -i 's/address = \":8080\"/address = \"0.0.0.0:'$ROSETTA'\"/g' $HOME_DIR/config/app.toml &&
+               sed -i 's/timeout_commit = \"5s\"/timeout_commit = \"'$TIMEOUT_COMMIT'\"/g' $HOME_DIR/config/config.toml &&
+               POA_ADMIN_ADDRESS=${POA_ADMIN_ADDRESS} $BINARY start --home=${HOME_DIR} --pruning=nothing --minimum-gas-prices=0.0011${DENOM} --rpc.laddr=\"tcp://0.0.0.0:$RPC\"
+               "]
+    healthcheck:
+      test: manifestd status | grep '"earliest_block_height":"1"'
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Setup some transactions on the blockchain
+  manifest-ledger-tx:
+    restart: no
+    image: ghcr.io/liftedinit/manifest-ledger:v0.0.1-alpha.18
+    volumes:
+      - manifest-ledger-bin:/usr/bin
+      - manifest-ledger-data:/persistent
+    entrypoint: ["/bin/bash", "-c"]
+    command: ["manifestd tx bank send $ADDR1 ${POA_ADMIN_ADDRESS} 10000${DENOM} ${COMMON_MANIFESTD_ARGS} && sleep ${TIMEOUT_COMMIT} &&
+               manifestd tx tokenfactory create-denom ufoobar ${COMMON_MANIFESTD_ARGS} --from $KEY && sleep ${TIMEOUT_COMMIT} &&
+               manifestd tx tokenfactory modify-metadata factory/$ADDR1/ufoobar FOOBAR \"This is the foobar token\" 6 ${COMMON_MANIFESTD_ARGS} --from $KEY && sleep ${TIMEOUT_COMMIT} &&
+               echo '${PAYOUT_PROPOSAL}' > proposal.json && cat proposal.json &&
+               manifestd tx group submit-proposal proposal.json ${COMMON_MANIFESTD_ARGS} --from $KEY && sleep ${TIMEOUT_COMMIT}
+               "]
+    depends_on:
+      manifest-ledger:
+        condition: service_healthy
+
+  yaci:
+    build:
+      context: ./
+      dockerfile: Dockerfile
+    command: ["extract", "postgres", "manifest-ledger:${GRPC}", "postgres://postgres:foobar@db:5432/postgres", "--live", "-k"]
+    depends_on:
+      db:
+        condition: service_healthy
+      manifest-ledger-tx:
+        condition: service_completed_successfully
+
+  postgrest:
+    image: postgrest/postgrest
+    restart: always
+    environment:
+      PGRST_DB_URI: postgres://postgres:foobar@db:5432/postgres
+      PGRST_DB_SCHEMA: api
+      PGRST_DB_ANON_ROLE: web_anon
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  manifest-ledger-bin:
+  manifest-ledger-data:
+  postgres-data:

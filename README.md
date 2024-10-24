@@ -8,6 +8,11 @@ Tested with Cosmos SDK v0.50.x.
 
 Off-chain indexing of block & transaction data.
 
+## Requirements
+
+- Go 1.23.1
+- Docker & Docker Compose (optional)
+
 ## Features
 
 - Ability to extract block and transaction chain data to various output formats:
@@ -21,11 +26,13 @@ Off-chain indexing of block & transaction data.
 
 ## Installation
 
-To install the `yaci` tool, you need to have Go installed on your system. Then, you can use the following command to install the tool:
+To install the `yaci` tool, you need to have Go installed on your system. Then, you can use the following command to install `yaci`:
 
 ```sh
-go install github.com/liftedinit/yaci/cmd/yaci@latest
+go install github.com/liftedinit/yaci@latest
 ```
+
+The `yaci` binary will be installed in the `$GOPATH/bin` directory.
 
 ## Usage
 The basic usage of the yaci tool is as follows:
@@ -129,6 +136,25 @@ yaci extract postgres localhost:9090 postgres://postgres:foobar@localhost/postgr
 ```
 
 This command will connect to the gRPC server running on `localhost:9090`, continuously extract data from block height `106000` and store the extracted data in the `postgres` database. New blocks and transactions will be inserted into the database every 5 seconds.
+
+## Demo
+
+To run the demo, you need to have Docker installed on your system. Then, you can run the following command:
+
+```shell
+# Build and start the e2e environment
+docker compose up --wait --build
+```
+
+Wait for the e2e environment to start. Then, open a new browser tab and navigate to http://localhost:3000/blocks?order=id.desc to view the blocks and to http://localhost:3000/transactions to view the transactions.
+
+Run
+
+```shell
+docker compose down -v
+```
+
+to stop the e2e environment.
 
 ## License
 
