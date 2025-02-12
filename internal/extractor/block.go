@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/dynamicpb"
 
 	"github.com/liftedinit/yaci/internal/utils"
+	"github.com/schollz/progressbar/v3"
 
 	"github.com/liftedinit/yaci/internal/models"
 	"github.com/liftedinit/yaci/internal/output"
@@ -28,10 +29,25 @@ const (
 func ExtractBlocksAndTransactions(ctx context.Context, grpcConn *grpc.ClientConn, resolver *reflection.CustomResolver, start, stop uint64, outputHandler output.OutputHandler, maxConcurrency, maxRetries uint) error {
 	if start == stop {
 		slog.Info("Extracting blocks and transactions", "height", start)
-
 	} else {
 		slog.Info("Extracting blocks and transactions", "range", fmt.Sprintf("[%d, %d]", start, stop))
 	}
+
+	bar := progressbar.NewOptions64(
+		int64(stop-start+1),
+		progressbar.OptionClearOnFinish(),
+		progressbar.OptionSetDescription("Processing blocks..."),
+		progressbar.OptionShowCount(),
+		progressbar.OptionShowIts(),
+		progressbar.OptionSetTheme(progressbar.Theme{
+			Saucer:        "=",
+			SaucerHead:    ">",
+			SaucerPadding: " ",
+			BarStart:      "[",
+			BarEnd:        "]",
+		}),
+	)
+	bar.RenderBlank()
 
 	sem := make(chan struct{}, maxConcurrency)
 	var wg sync.WaitGroup
@@ -46,13 +62,12 @@ func ExtractBlocksAndTransactions(ctx context.Context, grpcConn *grpc.ClientConn
 			wg.Add(1)
 
 			blockHeight := i
-			if blockHeight%5000 == 0 {
-				slog.Info("Still processing blocks...", "height", blockHeight)
-			}
 			go func() {
 				defer wg.Done()
-				defer func() { <-sem }()
-
+				defer func() {
+					<-sem
+					_ = bar.Add(1)
+				}()
 				err := ProcessSingleBlockWithRetry(ctx, grpcConn, resolver, blockHeight, outputHandler, maxRetries)
 				if err != nil {
 					if !errors.Is(err, context.Canceled) {
@@ -66,6 +81,8 @@ func ExtractBlocksAndTransactions(ctx context.Context, grpcConn *grpc.ClientConn
 
 	wg.Wait()
 	close(errCh)
+
+	bar.Finish()
 
 	for err := range errCh {
 		return fmt.Errorf("error while fetching blocks: %w", err)
